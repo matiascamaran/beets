@@ -50,6 +50,8 @@ New features
 Bug fixes
 ~~~~~~~~~
 
+- :doc:`plugins/export`: Expand glob patterns passed to ``--include-keys``.
+  :bug:`5411`
 - Metadata source plugins such as :doc:`plugins/musicbrainz` no longer print a
   full traceback at error level when a search fails because the service is
   unreachable. The error message is logged on its own, and the traceback is kept
