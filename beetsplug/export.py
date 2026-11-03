@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import fnmatch
 import json
 import os
 import sys
@@ -16,7 +17,7 @@ from beets import ui
 from beets.dbcore.types import BasePathType
 from beets.library.fields import TYPE_BY_FIELD
 from beets.plugins import BeetsPlugin
-from beetsplug.info import library_data, tag_data
+from beetsplug.info import library_data, tag_data, tag_fields
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -171,7 +172,20 @@ class ExportPlugin(BeetsPlugin):
                 lib, args, album=opts.album, limit=opts.limit
             ):
                 try:
-                    data, _ = data_emitter(included_keys or "*")
+                    keys: Literal["*"] | list[str]
+                    if included_keys:
+                        fields: Iterable[str]
+                        if opts.library or opts.album:
+                            _, model = data_emitter([])
+                            fields = model.keys(computed=True)
+                        else:
+                            fields = tag_fields()
+
+                        keys = _expand_keys(included_keys, fields)
+                    else:
+                        keys = "*"
+
+                    data, _ = data_emitter(keys)
                 except (mediafile.UnreadableFileError, OSError) as ex:
                     self._log.error("cannot read file: {}", ex)
                     continue
@@ -188,6 +202,24 @@ class ExportPlugin(BeetsPlugin):
         export_format.export(
             map(stringify_bytes, collect_data()), **format_options
         )
+
+
+def _expand_keys(
+    patterns: Sequence[str], field_names: Iterable[str]
+) -> list[str]:
+    fields = sorted(field_names)
+    keys = []
+    for pattern in patterns:
+        matches = [
+            field for field in fields if fnmatch.fnmatchcase(field, pattern)
+        ]
+        if not matches and not any(char in pattern for char in "*?["):
+            matches = [pattern]
+        for key in matches:
+            if key not in keys:
+                keys.append(key)
+
+    return keys
 
 
 class ExportFormat:

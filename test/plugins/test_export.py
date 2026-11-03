@@ -7,6 +7,18 @@ from xml.etree.ElementTree import Element
 
 from beets.test.helper import IOMixin, PluginTestCase
 
+MUSICBRAINZ_FIELDS = {
+    "mb_albumartistid",
+    "mb_albumartistids",
+    "mb_albumid",
+    "mb_artistid",
+    "mb_artistids",
+    "mb_releasegroupid",
+    "mb_releasetrackid",
+    "mb_trackid",
+    "mb_workid",
+}
+
 
 class ExportPluginTest(IOMixin, PluginTestCase):
     plugin = "export"
@@ -30,6 +42,14 @@ class ExportPluginTest(IOMixin, PluginTestCase):
         item.store()
         return item
 
+    def create_item_with_musicbrainz_fields(self):
+        item = self.create_item()
+        item.mb_albumid = "album-id"
+        item.mb_trackid = "track-id"
+        item.write()
+        item.store()
+        return item
+
     def test_json_output(self):
         item1 = self.create_item()
         out = self.execute_command(format_type="json", artist=item1.artist)
@@ -37,6 +57,60 @@ class ExportPluginTest(IOMixin, PluginTestCase):
         for key, val in self.test_values.items():
             assert key in json_data
             assert val == json_data[key]
+
+    def test_include_keys_glob_matches_tag_fields(self):
+        item = self.create_item_with_musicbrainz_fields()
+        out = self.run_with_output("export", "-i", "mb*", item.artist)
+        json_data = json.loads(out)[0]
+        assert set(json_data) == MUSICBRAINZ_FIELDS
+        assert json_data["mb_albumid"] == "album-id"
+        assert json_data["mb_trackid"] == "track-id"
+        assert "mb*" not in json_data
+
+    def test_include_keys_glob_with_comma_separated_keys(self):
+        item = self.create_item_with_musicbrainz_fields()
+        out = self.run_with_output("export", "-i", "title,mb*", item.artist)
+        json_data = json.loads(out)[0]
+        assert set(json_data) == MUSICBRAINZ_FIELDS | {"title"}
+        assert json_data["title"] == self.test_values["title"]
+        assert json_data["mb_albumid"] == "album-id"
+        assert json_data["mb_trackid"] == "track-id"
+
+    def test_include_keys_glob_with_repeated_overlapping_selectors(self):
+        item = self.create_item_with_musicbrainz_fields()
+        out = self.run_with_output(
+            "export", "-i", "mb*", "-i", "mb_album*", item.artist
+        )
+        pairs = json.loads(out, object_pairs_hook=list)[0]
+        json_data = dict(pairs)
+        assert set(json_data) == MUSICBRAINZ_FIELDS
+        assert len(pairs) == len(json_data)
+        assert json_data["mb_albumid"] == "album-id"
+        assert json_data["mb_trackid"] == "track-id"
+        assert "mb*" not in json_data
+
+    def test_include_keys_glob_matches_library_fields(self):
+        item = self.create_item_with_musicbrainz_fields()
+        out = self.run_with_output(
+            "export", "--library", "-i", "title", "-i", "mb*", item.artist
+        )
+        json_data = json.loads(out)[0]
+        assert set(json_data) == MUSICBRAINZ_FIELDS | {"title"}
+        assert json_data["title"] == self.test_values["title"]
+        assert json_data["mb_albumid"] == "album-id"
+        assert json_data["mb_trackid"] == "track-id"
+
+    def test_include_keys_glob_with_no_matches(self):
+        item = self.create_item()
+        out = self.run_with_output(
+            "export", "--library", "-i", "unknown*", item.artist
+        )
+        assert json.loads(out) == [{}]
+
+    def test_include_keys_glob_with_no_tag_matches(self):
+        item = self.create_item()
+        out = self.run_with_output("export", "-i", "unknown*", item.artist)
+        assert json.loads(out) == [{}]
 
     def test_jsonlines_output(self):
         item1 = self.create_item()
